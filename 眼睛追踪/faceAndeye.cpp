@@ -11,9 +11,35 @@ CascadeClassifier face;
 CascadeClassifier lefteye;
 CascadeClassifier righteye;
 
-Rect left, right;
+Rect leftEye, rightEye;
 
-int main() {
+void trackEye(Mat& im, Mat& tpl, Rect& rect) {   //模板匹配
+	Mat result;
+	int result_cols = im.cols - tpl.cols + 1;
+	int result_rows = im.rows - tpl.rows + 1;
+
+	// 模板匹配
+	result.create(result_rows, result_cols, CV_32FC1);
+	matchTemplate(im, tpl, result, TM_CCORR_NORMED);
+
+	// 寻找位置
+	double minval, maxval;
+	Point minloc, maxloc;
+	minMaxLoc(result, &minval, &maxval, &minloc, &maxloc);
+	if (maxval > 0.75) {
+		rect.x = rect.x + maxloc.x;
+		rect.y = rect.y + maxloc.y;
+	}
+	else {
+		rect.x = rect.y = rect.width = rect.height = 0;
+	}
+
+
+}
+
+
+int main()
+{
 	if (!face.load(facefile))
 	{
 		printf("ERROR");
@@ -24,44 +50,43 @@ int main() {
 		printf("ERROR");
 		return -2;
 	}
-
 	if (!righteye.load(righteyefile))
 	{
 		printf("ERROR");
 		return -3;
 	}
 
-	
+
 	Mat frame;
 	/*
 	VideoCapture capture;
 	capture.open("D:/OpenCV/picture zone/ZTZ.mp4");
 	*/
 	VideoCapture capture(0);
-	namedWindow("output",CV_WINDOW_AUTOSIZE);
-	
+	namedWindow("output", CV_WINDOW_AUTOSIZE);
+
 	Mat gray;
 	vector<Rect> faces;
 	vector<Rect> lefteyes;
 	vector<Rect> righteyes;
-
+	Mat lefttpl, righttpl; // 模板
 	while (capture.read(frame))
 	{
-		flip(frame,frame,1);//修正摄像头的镜像
-		cvtColor(frame,gray,COLOR_BGR2GRAY);
-		equalizeHist(gray,gray);
+		flip(frame, frame, 1);//修正摄像头的镜像
+		cvtColor(frame, gray, COLOR_BGR2GRAY);
+		equalizeHist(gray, gray);
 
-		face.detectMultiScale(gray,faces,1.1,3,0,Size(30,30));
+		face.detectMultiScale(gray, faces, 1.1, 3, 0, Size(30, 30));
 
 		for (size_t i = 0; i < faces.size(); i++)
 		{
-			rectangle(frame,faces[i],Scalar(0,0,255),2,8,0);
+			rectangle(frame, faces[i], Scalar(0, 0, 255), 2, 8, 0);
 
 			//计算眼睛范围
 			int offsety = faces[i].height / 4;
 			int offsetx = faces[i].width / 8;
-			int eyeheight = faces[i].height - offsety;
-			int eyewidth = faces[i].width - offsetx;
+			int eyeheight = faces[i].height / 2 - offsety;
+			int eyewidth = faces[i].width / 2 - offsetx;
 
 			//左眼范围
 			Rect leftrect;
@@ -72,44 +97,82 @@ int main() {
 			Mat leftRoi = gray(leftrect);
 
 			//检测左眼
-			lefteye.detectMultiScale(leftRoi,lefteyes,1.1,1,0,Size(20,20));
-			if (lefteyes.size())
+			lefteye.detectMultiScale(leftRoi, lefteyes, 1.1, 1, 0, Size(20, 20));
+			if (lefttpl.empty())
 			{
-				//将眼睛在原图的坐标计算出来
-				leftrect = lefteyes[0] + Point(leftrect.x,leftrect.y );
-				rectangle(frame, leftrect, Scalar(0, 0, 255), 2, 8, 0);
+				if (lefteyes.size())
+				{
+					//将眼睛在原图的坐标计算出来
+					leftrect = lefteyes[0] + Point(leftrect.x, leftrect.y);
+					lefttpl = gray(leftrect);
+					rectangle(frame, leftrect, Scalar(0, 255, 0), 2, 8, 0);
+				}
+
 			}
-
-
-			//右眼范围
-			Rect rightrect;
-			rightrect.x = faces[i].x + faces[i].width /2;
-			rightrect.y = faces[i].y + offsety;
-			rightrect.width = eyewidth;
-			rightrect.height = eyeheight;
-			Mat rightRoi = gray(rightrect);
-
-			//检测右眼
-			righteye.detectMultiScale(rightRoi, righteyes, 1.1, 1, 0, Size(20, 20));
-			if (righteyes.size())
+			else
 			{
-				//将眼睛在原图的坐标计算出来
-				rightrect = righteyes[0] + Point(rightrect.x, rightrect.y);
-				rectangle(frame, rightrect, Scalar(0, 255, 255), 2, 8, 0);
+				// 跟踪， 基于模板匹配
+				leftEye.x = leftrect.x;
+				leftEye.y = leftrect.y;
+				trackEye(leftRoi, lefttpl, leftEye);
+				if (leftEye.x > 0 && leftEye.y > 0) {
+					leftEye.width = lefttpl.cols;
+					leftEye.height = lefttpl.rows;
+					rectangle(frame, leftEye, Scalar(0, 0, 255), 2, 8, 0);
+				}
+
+
+
+				//右眼范围
+				Rect rightrect;
+				rightrect.x = faces[i].x + faces[i].width / 2;
+				rightrect.y = faces[i].y + offsety;
+				rightrect.width = eyewidth;
+				rightrect.height = eyeheight;
+				Mat rightRoi = gray(rightrect);
+
+				//检测右眼
+				righteye.detectMultiScale(rightRoi, righteyes, 1.1, 1, 0, Size(20, 20));
+				if (righttpl.empty())
+				{
+
+					if (righteyes.size())
+					{
+						//将眼睛在原图的坐标计算出来
+						rightrect = righteyes[0] + Point(rightrect.x, rightrect.y);
+						righttpl = gray(rightrect);
+						rectangle(frame, rightrect, Scalar(0, 255, 255), 2, 8, 0);
+					}
+
+				}
+				else
+				{
+					// 跟踪， 基于模板匹配
+					rightEye.x = rightrect.x;
+					rightEye.y = rightrect.y;
+					trackEye(rightRoi, righttpl, rightEye);
+					if (rightEye.x > 0 && rightEye.y > 0) {
+						rightEye.width = righttpl.cols;
+						rightEye.height = righttpl.rows;
+						rectangle(frame, rightEye, Scalar(0, 255, 255), 2, 8, 0);
+
+					}
+
+				}
+				imshow("output", frame);
+				char c = waitKey(30);
+				if (c == 27)
+				{
+					break;
+				}
 			}
-
-
-		}
-		imshow("output",frame);
-		char c =waitKey(30);
-		if (c==27)
-		{
-			break;
 		}
 	}
 
-	capture.release();
-	waitKey(0);
-	return 0;
 
+			capture.release();
+			waitKey(0);
+			return 0;
+
+	
 }
